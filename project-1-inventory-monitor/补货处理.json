@@ -1,0 +1,241 @@
+{
+  "name": "补货处理",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -480,
+        64
+      ],
+      "id": "40e54407-8115-42e7-a757-865edc859d3b",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/home/node/.n8n-files/files/inventory.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        -304,
+        -32
+      ],
+      "id": "952bfd77-b107-4002-aabf-887fd5df822b",
+      "name": "Read Inventory"
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -144,
+        -48
+      ],
+      "id": "b0dd14f3-43d4-49d4-899a-3a9c21cf1695",
+      "name": "Extract Inventory"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/home/node/.n8n-files/files/replenish_requests.txt",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        -320,
+        176
+      ],
+      "id": "04eea39d-b0f7-4ce5-8b9f-5ae8b9f3cf06",
+      "name": "Read Request"
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -80,
+        192
+      ],
+      "id": "a4aafdbd-4fd7-4f1e-8fcb-81ba569693f7",
+      "name": "Extract Request"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        16,
+        16
+      ],
+      "id": "2c691333-1b34-4024-ae2c-d2cdee3991aa",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nlet inventoryData = null;\nlet requestData = null;\nfor (const item of items) {\n    const data = item.json.data;\n    if (data && data.includes('商品ID')) {\n        inventoryData = data;\n    } else if (data && (data.includes('补货') || data.includes('笔记本') || data.includes('橡皮'))) {\n        requestData = data;\n    }\n}\n\nif (!inventoryData) throw new Error('无法获取库存表数据');\nif (!requestData) throw new Error('无法获取补货请求数据');\n\n// 解析库存 CSV\nconst lines = inventoryData.trim().split('\\n');\nconst headers = lines[0].split(',');\nconst inventoryMap = {};\nfor (let i = 1; i < lines.length; i++) {\n    const values = lines[i].split(',');\n    const id = values[0].trim();\n    const name = values[1].trim();\n    const stock = parseInt(values[2].trim(), 10);\n    inventoryMap[name] = { id, name, stock };\n}\n\n// 解析补货请求\nconst requestLines = requestData.split('\\n').filter(l => l.trim().length > 0);\nconst updates = [];\nconst productNames = Object.keys(inventoryMap);\n\nfor (const line of requestLines) {\n    let matchedProduct = null;\n    for (const name of productNames) {\n        if (line.includes(name)) {\n            matchedProduct = name;\n            break;\n        }\n    }\n    if (!matchedProduct) {\n        updates.push({ line, status: '未知商品' });\n        continue;\n    }\n    const qtyMatch = line.match(/(\\d+)/);\n    if (!qtyMatch) {\n        updates.push({ product: matchedProduct, status: '无法提取数量' });\n        continue;\n    }\n    const qty = parseInt(qtyMatch[1], 10);\n    if (inventoryMap[matchedProduct]) {\n        inventoryMap[matchedProduct].stock += qty;\n        updates.push({ product: matchedProduct, added: qty, newStock: inventoryMap[matchedProduct].stock });\n    } else {\n        updates.push({ product: matchedProduct, added: qty, status: 'unknown' });\n    }\n}\n\n// 生成新的 CSV 内容\nlet newCsv = headers.join(',') + '\\n';\nfor (const key in inventoryMap) {\n    const item = inventoryMap[key];\n    newCsv += `${item.id},${item.name},${item.stock}\\n`;\n}\n\nreturn {\n    newCsv: newCsv.trim(),\n    updates: updates\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        32
+      ],
+      "id": "171a3e7e-2da2-4fe5-b7ca-8bafa1d5484d",
+      "name": "Process Updates"
+    },
+    {
+      "parameters": {
+        "jsCode": "const newCsv = $json.newCsv;\nconst base64Data = Buffer.from(newCsv, 'utf-8').toString('base64');\nreturn {\n    json: {},\n    binary: {\n        data: {\n            data: base64Data,\n            fileName: 'inventory.csv',\n            mimeType: 'text/csv',\n            fileSize: newCsv.length\n        }\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        32
+      ],
+      "id": "54ffa1af-ffc8-443b-9411-b684af841db8",
+      "name": "Convert to Binary"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/home/node/.n8n-files/files/inventory.csv",
+        "options": {
+          "append": false
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        240
+      ],
+      "id": "55ae8a32-299d-4b35-88f6-acb06b90b590",
+      "name": "Read/Write Files from Disk"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Inventory",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Inventory": {
+      "main": [
+        [
+          {
+            "node": "Extract Inventory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Inventory": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Request": {
+      "main": [
+        [
+          {
+            "node": "Extract Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Request": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Process Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Updates": {
+      "main": [
+        [
+          {
+            "node": "Convert to Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to Binary": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "62e6dcb2-fdc4-4d26-b206-3b429ac694a1",
+  "meta": {
+    "instanceId": "f4c58a1423495729bf8d79389a0e56ed8ec32f6232cb8f9a6f1e4a4f06186383"
+  },
+  "id": "mND9divOBdyFGP5V",
+  "tags": []
+}

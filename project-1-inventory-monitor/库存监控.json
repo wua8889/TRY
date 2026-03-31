@@ -1,0 +1,210 @@
+{
+  "name": "库存监控",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -208,
+        -160
+      ],
+      "id": "5d07932c-1e1c-462f-bfe8-883472e51132",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/home/node/.n8n-files/files/inventory.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        -192
+      ],
+      "id": "29a657a2-ab28-48ff-a498-9730a6c3e1ac",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract from File 输出的文本通常放在 json.data 字段\nconst csvString = $input.first().json.data;\nconst lines = csvString.trim().split('\\n');\nconst headers = lines[0].split(',');\nconst result = [];\nfor (let i = 1; i < lines.length; i++) {\n    const values = lines[i].split(',');\n    const item = {};\n    headers.forEach((header, idx) => {\n        item[header.trim()] = values[idx] ? values[idx].trim() : '';\n    });\n    result.push(item);\n}\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        -192
+      ],
+      "id": "7fb26393-4ac9-4647-8232-f0404d98994e",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        -192
+      ],
+      "id": "aff491e5-d4f7-401e-a1a2-9d58e925ae6f",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "07e173c0-1a44-432a-80b7-16a6bdd69ca7",
+              "leftValue": "={{ Number($json[\"库存数量\"]) }}",
+              "rightValue": 10,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "ignoreCase": true
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        0,
+        16
+      ],
+      "id": "7f747930-7eff-49e4-adc8-0c5f9ff7265c",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 获取输入的低库存商品列表\nconst items = $input.all();\nconst timestamp = new Date().toISOString();\n// 生成日志行（每件商品一行）\nconst logLines = items.map(item => {\n    const json = item.json;\n    return `${timestamp},${json[\"商品ID\"]},${json[\"商品名称\"]},${json[\"库存数量\"]}`;\n});\nconst logText = logLines.join('\\n') + '\\n';  // 加上换行符\n\n// 将文本转为 base64（n8n 二进制数据要求）\nconst base64Data = Buffer.from(logText, 'utf-8').toString('base64');\n\n// 返回二进制对象格式\nreturn {\n    json: {},\n    binary: {\n        data: {\n            data: base64Data,\n            fileName: 'alert_log.csv',\n            mimeType: 'text/plain',\n            fileSize: logText.length\n        }\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        0
+      ],
+      "id": "a57fbdca-fc8e-40b2-9bd6-3131a196ea2a",
+      "name": "构造日志二进制"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/home/node/.n8n-files/files/alert_log.csv",
+        "options": {
+          "append": true
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        544,
+        -16
+      ],
+      "id": "2309ef05-fcc8-4e80-a8e4-a8adecc58334",
+      "name": "写日志"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "构造日志二进制",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "构造日志二进制": {
+      "main": [
+        [
+          {
+            "node": "写日志",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "42e059c2-7065-4028-a168-eb86f06d94e3",
+  "meta": {
+    "instanceId": "f4c58a1423495729bf8d79389a0e56ed8ec32f6232cb8f9a6f1e4a4f06186383"
+  },
+  "id": "upnCBdNenIGeyQcA",
+  "tags": []
+}
